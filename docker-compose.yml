@@ -1,0 +1,17 @@
+version: '2.4'
+services:
+    torch:
+        image: pytorch_source:test
+        runtime: nvidia
+        user: root
+        container_name: konjtenjer
+        environment: 
+            - DISPLAY=:99
+        ports:
+            - 5900:5900
+        volumes:
+            - .:/app
+            - ./dataset:/dataset
+        tty: true
+        stdin_open: true
+        command: /bin/bash

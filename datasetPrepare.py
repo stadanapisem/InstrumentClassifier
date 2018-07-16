@@ -10,17 +10,20 @@ from tqdm import tqdm
 
 
 def save_obj(obj, name):
-    with open(DATA_PATH / name, 'wb') as f:
+    with open(SAVE_PATH / name, 'wb') as f:
         pickle.dump(obj, f, protocol=pickle.DEFAULT_PROTOCOL)
 
 
 def load_obj(name):
-    with open(DATA_PATH / name, 'rb') as f:
+    with open(SAVE_PATH / name, 'rb') as f:
         return pickle.load(f)
 
 
 DATA_PATH = Path("../../dataset")
-DATA_FILE = "data.pickle"
+SAVE_PATH = Path("/opt/project")
+DATA_FILE = "data_small.pickle"
+LAB_IDX_FILE = "to_idx.pickle"
+IDX_LAB_FILE = "to_lab.pickle"
 CUTS = [0]
 
 i = 0
@@ -33,7 +36,8 @@ data = defaultdict(list)
 
 for dirs in tqdm(DATA_PATH.iterdir()):
     labels.append(str(dirs.name))
-
+    if str(dirs.name) == 'flute':
+        break
     for file in dirs.iterdir():
         sample_rate, signal = wavfile.read(file)
 
@@ -61,5 +65,9 @@ for dirs in tqdm(DATA_PATH.iterdir()):
 
         data[dirs.name].append(mfcc_feats)
 
-print(len(data))
+label_to_idx = {lab: i for i, lab in enumerate(labels)}
+idx_to_label = {i: lab for i, lab in enumerate(labels)}
+
+save_obj(label_to_idx, LAB_IDX_FILE)
+save_obj(idx_to_label, IDX_LAB_FILE)
 save_obj(data, DATA_FILE)
