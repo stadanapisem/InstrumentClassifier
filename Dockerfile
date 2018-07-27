@@ -60,6 +60,7 @@ RUN conda install -y -c pytorch \
 RUN conda install -y \
     h5py \
  && conda clean -ya
+RUN pip install --upgrade pip
 RUN pip install h5py-cache
 
 RUN conda install -c conda-forge tqdm
@@ -70,12 +71,7 @@ RUN conda install -c mingfeima mkldnn
 RUN conda install -y graphviz=2.38.0 \
  && conda clean -ya
 
-RUN pip install graphviz matplotlib python_speech_features dill
+RUN pip install numpy scipy matplotlib python_speech_features dill
 ENV CMAKE_PREFIX_PATH="$(dirname $(which conda))/../"
 RUN git clone --recursive https://github.com/pytorch/pytorch
 RUN cd pytorch && python setup.py install
-
-COPY startup.sh /startup.sh
-RUN sudo chmod +x /startup.sh
-
-ENTRYPOINT ["/startup.sh"]

@@ -21,7 +21,7 @@ def load_obj(name):
 
 DATA_PATH = Path("../../dataset")
 SAVE_PATH = Path("/opt/project")
-DATA_FILE = "data_small.pickle"
+DATA_FILE = "data.pickle"
 LAB_IDX_FILE = "to_idx.pickle"
 IDX_LAB_FILE = "to_lab.pickle"
 CUTS = [0]
@@ -36,8 +36,7 @@ data = defaultdict(list)
 
 for dirs in tqdm(DATA_PATH.iterdir()):
     labels.append(str(dirs.name))
-    if str(dirs.name) == 'flute':
-        break
+
     for file in dirs.iterdir():
         sample_rate, signal = wavfile.read(file)
 
