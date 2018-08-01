@@ -12,6 +12,7 @@ from torch.utils.data.dataset import Dataset
 from torch.utils.data.sampler import RandomSampler, SequentialSampler
 import torch
 import time
+import math
 
 
 def save_obj(obj, name):
@@ -26,7 +27,7 @@ def load_obj(name):
 
 DATA_PATH = Path("../../dataset")
 SAVE_PATH = Path("/opt/project")
-DATA_FILE = "data.pickle"
+DATA_FILE = "data_small.pickle"
 LAB_IDX_FILE = "to_idx.pickle"
 IDX_LAB_FILE = "to_lab.pickle"
 
@@ -46,43 +47,45 @@ validation_time = []
 conf_matrix_best = []
 
 
-def metrics(predictions, targets, thresh=0.5):
-    true_positives = 0
-    true_negatives = 0
-    false_positives = 0
-    false_negatives = 0
+def precision(confusion_matrix):
+    rows, columns = confusion_matrix.shape
+    sum_of_precisions = 0
+    for label in range(rows):
+        sum_of_precisions += confusion_matrix[label, label] / confusion_matrix[:, label].sum()
+    return sum_of_precisions / rows
+
+
+def recall(confusion_matrix):
+    rows, columns = confusion_matrix.shape
+    sum_of_recalls = 0
+    for label in range(columns):
+        sum_of_recalls += confusion_matrix[label, label] / confusion_matrix[label, :].sum()
+    return sum_of_recalls / columns
+
+
+def metrics(predictions, targets):
     conf_matrix = np.zeros((train_data_set.label_size, train_data_set.label_size), dtype=int)
 
     for i in range(len(predictions)):
-        conf_matrix[np.argmax(targets[i]).data[0]][np.argmax(predictions[i]).data[0]] += 1
-        if np.max(predictions[i]) > thresh:
-            if np.argmax(predictions[i]).data[0] == np.argmax(targets[i]).data[0]:
-                true_positives += 1
-            else:
-                false_positives += 1
-        else:
-            if np.argmax(predictions[i]).data[0] == np.argmax(targets[i]).data[0]:
-                true_negatives += 1
-            else:
-                false_negatives += 1
+        conf_matrix[np.argmax(targets[i])][np.argmax(predictions[i])] += 1
 
-    acc = (true_positives + true_negatives) / (true_positives + true_negatives + false_negatives + false_positives)
-    try:
-        precision = true_positives / (true_positives + false_positives)
-    except ZeroDivisionError:
-        precision = 0
+    acc = conf_matrix.trace() / conf_matrix.sum()
+
+    prec = precision(conf_matrix)
+    rec = recall(conf_matrix)
+
+    if math.isnan(prec):
+        prec = 0
+
+    if math.isnan(rec):
+        rec = 0
 
     try:
-        recall = true_positives / (true_positives + false_negatives)
-    except ZeroDivisionError:
-        recall = 0
-
-    try:
-        f1 = 2 * precision * recall / (precision + recall)
+        f1 = 2 * prec * rec / (prec + rec)
     except ZeroDivisionError:
         f1 = 0
 
-    return acc, precision, recall, f1, conf_matrix
+    return acc, prec, rec, f1, conf_matrix
 
 
 class InstrumentData(Dataset):
@@ -126,53 +129,32 @@ class NeuralNet(nn.Module):
                                stride=(2, 1))  # (8x120x12) -> (16x60x12)
         self.avgpool3 = nn.AvgPool2d(3, padding=(1, 1), stride=1)  # (16x60x12) -> (16x60x12)
 
-        # nn.init.xavier_normal_(self.conv1.weight)
-        # nn.init.xavier_normal_(self.conv2.weight)
-        # nn.init.xavier_normal_(self.conv3.weight)
+        # nn.init.xavier_uniform_(self.conv1.weight)
+        # nn.init.xavier_uniform_(self.conv2.weight)
+        # nn.init.xavier_uniform_(self.conv3.weight)
 
         self.linear1 = nn.Linear(16 * 60 * 12, 60 * 12)
         self.linear2 = nn.Linear(60 * 12, 150)
         self.linear3 = nn.Linear(150, 15)
 
-        # self.batchnorm1 = nn.BatchNorm2d(64)
-        self.batchnorm2 = nn.BatchNorm2d(8)
+        self.batchnorm = nn.BatchNorm2d(8)
+        self.dropout = nn.Dropout()
 
     def forward(self, x):
         x.unsqueeze_(1)
+        x = self.avgpool1(F.elu(self.conv1(x)))
 
-        x = self.conv1(x)
-        # x = self.batchnorm1(x)
-        x = F.elu(x)
-        # x = torch.tanh(x)
-        x = self.avgpool1(x)
+        x = self.avgpool2(self.dropout(F.elu(self.batchnorm(self.conv2(x)))))
 
-        x = self.conv2(x)
-        x = F.elu(x)
-        # x = torch.tanh(x)
-        x = self.batchnorm2(x)
-        x = F.dropout(x, training=self.training, p=0.5)
-        x = self.avgpool2(x)
-
-        x = self.conv3(x)
-        x = F.elu(x)
-        # x = torch.tanh(x)
-        x = F.dropout(x, training=self.training, p=0.5)
-        # x = self.avgpool3(x) not needed before a fully-conected layer
+        x = self.dropout(F.elu(self.conv3(x)))
 
         x = x.view(x.size(0), -1)
-        x = self.linear1(x)
-        x = F.elu(x)
-        x = self.linear2(x)
-        x = F.elu(x)
-        x = self.linear3(x)
-
-        # if not self.training:
-        #    x = torch.softmax(x, dim=0)
+        x = self.linear3(F.elu(self.linear2(F.elu(self.linear1(x)))))
 
         return x
 
 
-def dataset_split(dataset, test_size=0.3, shuffle=False):
+def dataset_split(dataset, test_size=0.5, shuffle=False):
     length = dataset.__len__()
     idx = list(range(1, length))
 
@@ -196,19 +178,21 @@ def train(epoch, data_loader, model, loss_func, optimizer):
         loss = loss_func(output, torch.max(target, 1)[1]).cuda()
         loss.backward()
         optimizer.step()
-        acc, _, _, f1, _ = metrics(np.vstack(output.cpu().detach().numpy()), np.vstack(target.cpu().detach().numpy()))
+        acc, _, _, f1, _ = metrics(np.vstack(F.softmax(output, dim=1).data.cpu().detach().numpy()),
+                                   np.vstack(target.cpu().detach().numpy()))
 
-        training_loss.append((batch, loss.item()))
-        training_acc.append((batch, acc))
-        training_f1.append((batch, f1))
+        training_loss.append((epoch, batch, loss.item()))
+        training_acc.append((epoch, batch, acc))
+        training_f1.append((epoch, batch, f1))
 
         if batch % 15 == 0:
-            print('Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAcc: {:.6f}%\tF1: {:.6f}'.format(epoch, batch * len(data),
-                                                                                               len(data_loader.dataset),
-                                                                                               100. * batch / len(
-                                                                                                   data_loader),
-                                                                                               loss.item(), 100. * acc,
-                                                                                               f1))
+            print('Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAcc: {:.6f}%\tF1: {:.6f}'.format(
+                epoch, batch * len(data),
+                len(data_loader.dataset),
+                       100. * batch / len(
+                           data_loader),
+                loss.item(), 100. * acc,
+                f1))
 
 
 def validate(epoch, data_loader, model, loss_func):
@@ -231,13 +215,14 @@ def validate(epoch, data_loader, model, loss_func):
         loss = loss_func(pred, torch.max(target, 1)[1]).cuda()
         total_loss += loss.item()
 
-        acc, p, r, f1, _ = metrics(np.vstack(F.softmax(pred, dim=1).data.cpu().numpy()), np.vstack(target.cpu().numpy()))
+        acc, p, r, f1, _ = metrics(np.vstack(F.softmax(pred, dim=1).data.cpu().numpy()),
+                                   np.vstack(target.cpu().numpy()))
 
-        validation_loss.append((batch, loss.item()))
-        validation_acc.append((batch, acc))
-        validation_f1.append((batch, f1))
-        validation_prec.append((batch, p))
-        validation_rec.append((batch, r))
+        validation_loss.append((epoch, batch, loss.item()))
+        validation_acc.append((epoch, batch, acc))
+        validation_f1.append((epoch, batch, f1))
+        validation_prec.append((epoch, batch, p))
+        validation_rec.append((epoch, batch, r))
 
     avg_loss = total_loss / len(data_loader)
 
@@ -278,14 +263,14 @@ if __name__ == '__main__':
     loss_function = nn.CrossEntropyLoss()
     max_f1 = -1
 
-    for epoch in range(5):
+    for epoch in range(25):
         curr = time.time()
         train(epoch, train_loader, model, loss_function, optimizer)
         print('Train time: {:.6f}'.format(time.time() - curr))
         training_time.append((epoch, time.time() - curr))
 
         curr = time.time()
-        f1, c = validate(0, validation_loader, model, loss_function)
+        f1, c = validate(epoch, validation_loader, model, loss_function)
         validation_time.append((epoch, time.time() - curr))
 
         if f1 > max_f1:
