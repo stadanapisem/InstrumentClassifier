@@ -9,7 +9,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset
-from torch.utils.data.sampler import RandomSampler, SequentialSampler
+from torch.utils.data.sampler import RandomSampler, SequentialSampler, SubsetRandomSampler
 import torch
 import time
 import math
@@ -27,7 +27,7 @@ def load_obj(name):
 
 DATA_PATH = Path("../../dataset")
 SAVE_PATH = Path("/opt/project")
-DATA_FILE = "data_small.pickle"
+DATA_FILE = "data.pickle"
 LAB_IDX_FILE = "to_idx.pickle"
 IDX_LAB_FILE = "to_lab.pickle"
 
@@ -109,7 +109,7 @@ class InstrumentData(Dataset):
 
     def __getitem__(self, item):
         ret_data = torch.from_numpy(np.asarray(self.data[item]))
-        label_list = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        label_list = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         # label_list = [0, 0]
         label_list[self.labels[item]] = 1
         ret_label = torch.from_numpy(np.asarray(label_list))
@@ -129,13 +129,13 @@ class NeuralNet(nn.Module):
                                stride=(2, 1))  # (8x120x12) -> (16x60x12)
         self.avgpool3 = nn.AvgPool2d(3, padding=(1, 1), stride=1)  # (16x60x12) -> (16x60x12)
 
-        # nn.init.xavier_uniform_(self.conv1.weight)
-        # nn.init.xavier_uniform_(self.conv2.weight)
-        # nn.init.xavier_uniform_(self.conv3.weight)
+#        nn.init.xavier_uniform_(self.conv1.weight)
+#        nn.init.xavier_uniform_(self.conv2.weight)
+#        nn.init.xavier_uniform_(self.conv3.weight)
 
         self.linear1 = nn.Linear(16 * 60 * 12, 60 * 12)
-        self.linear2 = nn.Linear(60 * 12, 150)
-        self.linear3 = nn.Linear(150, 15)
+        self.linear2 = nn.Linear(60 * 12, 160)
+        self.linear3 = nn.Linear(160, 16)
 
         self.batchnorm = nn.BatchNorm2d(8)
         self.dropout = nn.Dropout()
@@ -150,19 +150,19 @@ class NeuralNet(nn.Module):
 
         x = x.view(x.size(0), -1)
         x = self.linear3(F.elu(self.linear2(F.elu(self.linear1(x)))))
-
+        
         return x
 
 
-def dataset_split(dataset, test_size=0.5, shuffle=False):
-    length = dataset.__len__()
-    idx = list(range(1, length))
+def dataset_split(dataset, test_size=0.3, shuffle=False):
+    length = len(dataset)
+    idx = list(range(length))
 
     if shuffle:
         np.random.seed()
-        idx = np.random.permutation(len(idx))
+        np.random.shuffle(idx)
 
-    split = floor(test_size * length)
+    split = int(np.floor(test_size * length))
 
     return idx[split:], idx[:split]
 
@@ -237,18 +237,18 @@ def validate(epoch, data_loader, model, loss_func):
                  prec,
                  rec,
                  f1))
-    return f1, conf
+    return avg_loss, f1, conf
 
 
 if __name__ == '__main__':
-    BATCH_SIZE = 64
+    BATCH_SIZE = 128
 
     train_data_set = InstrumentData(DATA_FILE)
     validation_data_set = InstrumentData(DATA_FILE)
 
     train_idx, validation_idx = dataset_split(train_data_set, shuffle=True)
-    train_sampler = RandomSampler(train_idx)
-    validation_sampler = SequentialSampler(validation_idx)
+    train_sampler = SubsetRandomSampler(train_idx)
+    validation_sampler = SubsetRandomSampler(validation_idx)
 
     train_loader = DataLoader(train_data_set, batch_size=BATCH_SIZE, sampler=train_sampler, num_workers=1,
                               pin_memory=True)
@@ -259,9 +259,10 @@ if __name__ == '__main__':
     model = NeuralNet().cuda()
     # model = torch.load("model1.pytorch")
 
-    optimizer = optim.Adam(model.parameters())
+    optimizer = optim.SGD(model.parameters(), lr=0.007, weight_decay=0.005, momentum=0.9)
+    #optimizer = optim.Adamax(model.parameters())
     loss_function = nn.CrossEntropyLoss()
-    max_f1 = -1
+    min_loss = 10
 
     for epoch in range(25):
         curr = time.time()
@@ -270,10 +271,11 @@ if __name__ == '__main__':
         training_time.append((epoch, time.time() - curr))
 
         curr = time.time()
-        f1, c = validate(epoch, validation_loader, model, loss_function)
+        loss, f1, c = validate(epoch, validation_loader, model, loss_function)
         validation_time.append((epoch, time.time() - curr))
 
-        if f1 > max_f1:
+        if loss < min_loss:
+            min_loss = loss
             conf_matrix_best = c
             torch.save(model, 'model_best.pytorch')
 
