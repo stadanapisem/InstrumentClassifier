@@ -8,13 +8,17 @@ import scipy.io.wavfile as wavfile
 from python_speech_features import *
 from tqdm import tqdm
 
+"""Purpouse of this script is to do the required preprocessing and feature extraction from the dataset."""
+
 
 def save_obj(obj, name):
+    """Save object to a file, using dill package, as pickle is not suitable for files over 2GB."""
     with open(SAVE_PATH / name, 'wb') as f:
         pickle.dump(obj, f, protocol=pickle.DEFAULT_PROTOCOL)
 
 
 def load_obj(name):
+    """Load object from a file using dill."""
     with open(SAVE_PATH / name, 'rb') as f:
         return pickle.load(f)
 
@@ -40,18 +44,6 @@ for dirs in tqdm(DATA_PATH.iterdir()):
     for file in dirs.iterdir():
         sample_rate, signal = wavfile.read(file)
 
-        """search = re.search('\A(.*)_(\w+\d)_(\d+)_.*', file.name)
-        try:
-            file_length = int(search.group(3))
-        except AttributeError:
-            file_length = 
-        if file_length == 5:
-            file_length = 0.5
-        elif file_length == 25:
-            file_length = 0.25"""
-
-        # signal = signal[0:int(sample_rate * file_length)]
-        # signal = np.trim_zeros(signal)
         signal = signal[signal != 0]
 
         mfcc_feat = mfcc(signal, sample_rate, winlen=0.01, winstep=0.0005)

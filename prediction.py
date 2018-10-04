@@ -2,6 +2,8 @@ from InstrumentsDataset import *
 import argparse
 import scipy.io.wavfile as wavfile
 from python_speech_features import *
+import matplotlib.pyplot as plt
+from matplotlib import cm
 
 
 if __name__ == '__main__':

@@ -89,6 +89,7 @@ def metrics(predictions, targets):
 
 
 class InstrumentData(Dataset):
+"""Load dataset into required PyTorch structures."""
     data = []
     labels = []
     label_size = 0
@@ -110,13 +111,13 @@ class InstrumentData(Dataset):
     def __getitem__(self, item):
         ret_data = torch.from_numpy(np.asarray(self.data[item]))
         label_list = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        # label_list = [0, 0]
         label_list[self.labels[item]] = 1
         ret_label = torch.from_numpy(np.asarray(label_list))
         return ret_data, ret_label
 
 
 class NeuralNet(nn.Module):
+"""Define the model architecture, along with its forward pass."""
     def __init__(self):
         super(NeuralNet, self).__init__()
 
@@ -128,10 +129,6 @@ class NeuralNet(nn.Module):
         self.conv3 = nn.Conv2d(8, 16, kernel_size=(4, 3), padding=(1, 1),
                                stride=(2, 1))  # (8x120x12) -> (16x60x12)
         self.avgpool3 = nn.AvgPool2d(3, padding=(1, 1), stride=1)  # (16x60x12) -> (16x60x12)
-
-#        nn.init.xavier_uniform_(self.conv1.weight)
-#        nn.init.xavier_uniform_(self.conv2.weight)
-#        nn.init.xavier_uniform_(self.conv3.weight)
 
         self.linear1 = nn.Linear(16 * 60 * 12, 60 * 12)
         self.linear2 = nn.Linear(60 * 12, 160)
@@ -155,6 +152,7 @@ class NeuralNet(nn.Module):
 
 
 def dataset_split(dataset, test_size=0.3, shuffle=False):
+"""Split dataset to a training and validation one."""
     length = len(dataset)
     idx = list(range(length))
 
@@ -259,7 +257,6 @@ if __name__ == '__main__':
     model = NeuralNet().cuda()
     # model = torch.load("model1.pytorch")
 
-    optimizer = optim.SGD(model.parameters(), lr=0.007, weight_decay=0.005, momentum=0.9)
     #optimizer = optim.Adamax(model.parameters())
     loss_function = nn.CrossEntropyLoss()
     min_loss = 10
